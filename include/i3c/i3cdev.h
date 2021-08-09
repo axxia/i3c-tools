@@ -20,13 +20,21 @@
  * struct i3c_ioc_priv_xfer - I3C SDR ioctl private transfer
  * @data: Holds pointer to userspace buffer with transmit data.
  * @len: Length of data buffer buffers, in bytes.
+ * @addr: The address of the I2C slave.
+ * @offset: For combo transfers.
+ * @combo: combo transfer.
+ * @i2cni3c: I2C slave.
  * @rnw: encodes the transfer direction. true for a read, false for a write
  */
+
 struct i3c_ioc_priv_xfer {
 	__u64 data;
 	__u16 len;
-	__u8 rnw;
-	__u8 pad[5];
+	__u8  addr;	     /* slave address for i2c transfers */
+	__u16 offset;	     /* for combo transfers only */
+	__u8  combo;	     /* combo, instead of regular, transfer */
+	__u8  i2cni3c;
+	__u8  rnw;
 };
 
 #define I3C_PRIV_XFER_SIZE(N)	\
