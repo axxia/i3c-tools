@@ -39,20 +39,28 @@ static void print_usage(const char *name)
 	fprintf(stderr,
 		"options:\n");
 	fprintf(stderr,
-		"    -d --device       <dev>\n"
-		"        REQUIRED: Device to use.\n");
+		"    -d --device       <device>\n"
+		"        REQUIRED: device: Device entry to use.\n");
 	fprintf(stderr,
-		"    -r --read         [address]:<data length>\n"
-		"        Address for I2C transfer, empty for I3C.  Number of bytes to read.\n");
+		"    -r --read         [address]:<length>[:<file>]\n"
+		"        address: Slave address for I2C transfers, empty for I3C.\n"
+		"         length: Number of bytes to read.\n"
+		"           file: File to write bytes to.\n");
 	fprintf(stderr,
-		"    -w --write        [address]:<data block>\n"
-		"        Address for I2C transfer, emptyr for I3C.  Write data block.\n");
+		"    -w --write        [address]:<data>|<file>\n"
+		"        address: Slave address for I2C transfers, empty for I3C.\n"
+		"           data: Write data.\n"
+		"           file: File containing write data.\n");
 	fprintf(stderr,
-		"    -c --combo        [address]:<offset>:r|w:<data length>|<data block>\n"
-		"        Address for I2C transfers, empty for I3C\n"
-		"        <offset> 16 bit offset for initial write.\n"
-		"        Select read or write for secondary operation.\n"
-		"        Length if read or write data block if write.\n");
+		"    -c --combo        [address]:<offset>:r:<length>[:file] OR\n"
+		"                      [address]:<offset>:w:<data>|<file>\n"
+		"        address: Slave address for I2C transfers, empty for I3C.\n"
+		"         offset: 16 bit offset for initial write.\n"
+		"              r: read length bytes.\n"
+		"              w: write bytes from command line or file.\n"
+		"         length: for reads, number of bytes to read.\n"
+		"           data: for writes, data to write.\n"
+		"           file: file to read data from, or write data to.\n");
 	fprintf(stderr,
 		"    -h --help\n"
 		"        Output usage message and exit.\n");
@@ -130,7 +138,12 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 {
 	char *data_ptrs[256];
 	int len, i = 0;
+	FILE *input;
 	char *tmp;
+
+	/**
+	 * [address]:<data>|<file>
+	 */
 
 	memset(xfer, 0, sizeof(*xfer));
 	xfer->rnw = 0;
@@ -172,27 +185,53 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	}
 
 	/**
-	 * Allocate and fill a buffer with data.
+	 * Allocate and fill a buffer with data.  The data can be
+	 * given on the command line as a comma seperated list of
+	 * values (0xnn,0xmm,etc.) OR a binary file.
 	 */
 
-	data_ptrs[i] = strtok(tmp, ",");
+	/* If 'tmp' is at a file, use it. */
 
-	while (data_ptrs[i] && i < 255)
-		data_ptrs[++i] = strtok(NULL, ",");
+	input = fopen(tmp, "rb");
 
-	tmp = (char *)calloc(i, sizeof(uint8_t));
+	if (input) {
+		fseek(input, 0L, SEEK_END);
+		xfer->len = ftell(input);
+		rewind(input);
 
-	if (!tmp) {
-		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		tmp = (char *)calloc(xfer->len, sizeof(uint8_t));
 
-		return -1;
+		if (!tmp) {
+			fprintf(stderr,
+				"%s failed at %d\n", __func__, __LINE__);
+
+			return -1;
+		}
+
+		fread(tmp, sizeof(char *), xfer->len, input);
+		xfer->data = (uintptr_t)tmp;
+		fclose(input);
+	} else {
+		data_ptrs[i] = strtok(tmp, ",");
+
+		while (data_ptrs[i] && i < 255)
+			data_ptrs[++i] = strtok(NULL, ",");
+
+		tmp = (char *)calloc(i, sizeof(uint8_t));
+
+		if (!tmp) {
+			fprintf(stderr,
+				"%s failed at %d\n", __func__, __LINE__);
+
+			return -1;
+		}
+
+		for (len = 0; len < i; len++)
+			tmp[len] = (uint8_t)strtol(data_ptrs[len], NULL, 0);
+
+		xfer->len = len;
+		xfer->data = (uintptr_t)tmp;
 	}
-
-	for (len = 0; len < i; len++)
-		tmp[len] = (uint8_t)strtol(data_ptrs[len], NULL, 0);
-
-	xfer->len = len;
-	xfer->data = (uintptr_t)tmp;
 
 	return 0;
 }
@@ -317,27 +356,53 @@ static int c_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	return 0;
 }
 
-static void print_rx_data(struct i3c_ioc_priv_xfer *xfer)
+static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
 {
-	uint8_t *tmp;
+	char *filename;
+	FILE *output;
+	unsigned char *tmp;
 	int i;
 
-	tmp = (uint8_t *)calloc(xfer->len, sizeof(uint8_t));
+	filename = strtok(arg, ":");
+	filename = strtok(NULL, ":");
+	filename = strtok(NULL, ":");
+
+	if (filename) {
+		output = fopen(filename, "w");
+
+		if (!output) {
+			fprintf(stderr,
+				"fopen(%s) failed: %s\n",
+				filename, strerror(errno));
+
+			return -1;
+		}
+	}
+
+	tmp = (unsigned char *)calloc(xfer->len, sizeof(uint8_t));
 	if (!tmp)
-		return;
+		return -1;
 
 	memcpy(tmp, (void *)(uintptr_t)xfer->data, xfer->len * sizeof(uint8_t));
 
-	fprintf(stdout, "  received data:\n");
-	for (i = 0; i < xfer->len; i++)
-		fprintf(stdout, "    0x%02x\n", tmp[i]);
+	if (filename) {
+		fwrite(tmp, sizeof(char), xfer->len * sizeof(char), output);
+		fclose(output);
+	} else {
+		fprintf(stdout, "  received data:\n");
+		for (i = 0; i < xfer->len; i++)
+			fprintf(stdout, "    0x%02x\n", tmp[i]);
+	}
 
 	free(tmp);
+
+	return 0;
 }
 
 int main(int argc, char *argv[])
 {
 	struct i3c_ioc_priv_xfer *xfers;
+	char **xfers_args;
 	int file, ret, opt, i;
 	int nxfers = 0;
 	char *device;
@@ -377,12 +442,19 @@ int main(int argc, char *argv[])
 	if (!xfers)
 		exit(EXIT_FAILURE);
 
+	xfers_args = (char **)calloc(nxfers, sizeof(char *));
+	if (!xfers_args)
+		exit(EXIT_FAILURE);
+
 	optind = 1;
 	nxfers = 0;
 
 	while ((opt = getopt_long(argc, argv, sopts, lopts, NULL)) != EOF) {
 		switch (opt) {
 		case 'r':
+			xfers_args[nxfers] = malloc(strlen(optarg) + 1);
+			strcpy(xfers_args[nxfers], optarg);
+
 			if (r_args_to_xfer(&xfers[nxfers], optarg)) {
 				fprintf(stderr, "r_args_to_xfer() failed!\n");
 				ret = EXIT_FAILURE;
@@ -392,6 +464,9 @@ int main(int argc, char *argv[])
 			nxfers++;
 			break;
 		case 'w':
+			xfers_args[nxfers] = malloc(strlen(optarg) + 1);
+			strcpy(xfers_args[nxfers], optarg);
+
 			if (w_args_to_xfer(&xfers[nxfers], optarg)) {
 				fprintf(stderr, "w_args_to_xfer() failed!\n");
 				ret = EXIT_FAILURE;
@@ -401,6 +476,9 @@ int main(int argc, char *argv[])
 			nxfers++;
 			break;
 		case 'c':
+			xfers_args[nxfers] = malloc(strlen(optarg) + 1);
+			strcpy(xfers_args[nxfers], optarg);
+
 			if (c_args_to_xfer(&xfers[nxfers], optarg)) {
 				fprintf(stderr, "c_args_to_xfer() failed!\n");
 				ret = EXIT_FAILURE;
@@ -422,17 +500,21 @@ int main(int argc, char *argv[])
 	}
 
 	for (i = 0; i < nxfers; i++) {
-		fprintf(stdout, "Success on message %d\n", i);
+		fprintf(stdout,
+			"Success on message %d: %s\n", i, xfers_args[i]);
 		if (xfers[i].rnw)
-			print_rx_data(&xfers[i]);
+			handle_read(xfers_args[i], &xfers[i]);
 	}
 
 	ret = EXIT_SUCCESS;
 
 err_free:
-	for (i = 0; i < nxfers; i++)
+	for (i = 0; i < nxfers; i++) {
 		free((void *)(uintptr_t)xfers[i].data);
+		free(xfers_args[i]);
+	}
 	free(xfers);
+	free(xfers_args);
 
 	return ret;
 }
