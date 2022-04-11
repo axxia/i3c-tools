@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,12 +21,11 @@
 
 #define VERSION "0.1"
 
-const char *sopts = "d:a:r:w:c:hv";
+const char *sopts = "d:a:r:w:hv";
 static const struct option lopts[] = {
 	{"device",		required_argument,	NULL,	'd' },
 	{"read",		required_argument,	NULL,	'r' },
 	{"write",		required_argument,	NULL,	'w' },
-	{"combo",               required_argument,      NULL,   'c' },
 	{"help",		no_argument,		NULL,	'h' },
 	{"version",		no_argument,		NULL,	'v' },
 	{0, 0, 0, 0}
@@ -35,32 +35,25 @@ static void print_usage(const char *name)
 {
 	fprintf(stderr,
 		"  usage: %s options...\n"
- 		"   note: -r, -w, and -c are exclusive.  One, and only one, must be specified.\n", name);
+ 		"   note: -r and -w are exclusive.  One, and only one, must be specified.\n",
+		name);
 	fprintf(stderr,
 		"options:\n");
 	fprintf(stderr,
 		"    -d --device       <device>\n"
 		"        REQUIRED: device: Device entry to use.\n");
 	fprintf(stderr,
-		"    -r --read         [address]:<length>[:<file>]\n"
-		"        address: Slave address for I2C transfers, empty for I3C.\n"
+		"    -r --read         <type>:<address>:<length>[:<file>]\n"
+		"           type: i2c or i3c.\n"
+		"        address: Slave address.\n"
 		"         length: Number of bytes to read.\n"
 		"           file: File to write bytes to.\n");
 	fprintf(stderr,
-		"    -w --write        [address]:<data>|<file>\n"
-		"        address: Slave address for I2C transfers, empty for I3C.\n"
+		"    -w --write        <type>:<address>:<data>|<file>\n"
+		"           type: i2c or i3c.\n"
+		"        address: Slave address.\n"
 		"           data: Write data.\n"
-		"           file: File containing write data.\n");
-	fprintf(stderr,
-		"    -c --combo        [address]:<offset>:r:<length>[:file] OR\n"
-		"                      [address]:<offset>:w:<data>|<file>\n"
-		"        address: Slave address for I2C transfers, empty for I3C.\n"
-		"         offset: 16 bit offset for initial write.\n"
-		"              r: read length bytes.\n"
-		"              w: write bytes from command line or file.\n"
-		"         length: for reads, number of bytes to read.\n"
-		"           data: for writes, data to write.\n"
-		"           file: file to read data from, or write data to.\n");
+		"           file: File containing data to write.\n");
 	fprintf(stderr,
 		"    -h --help\n"
 		"        Output usage message and exit.\n");
@@ -77,50 +70,53 @@ static int r_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	memset(xfer, 0, sizeof(*xfer));
 	xfer->rnw = 1;
 
-	/**
-	 * Address (optional) -- Implies i2cni3c if it is present.
-	 */
+	/* Type */
+	tmp = strtok(arg, ":");
 
-	if (strchr(arg, ':') != NULL) {
-		if (arg[0] != ':') {
-			tmp = strtok(arg, ":");
-
-			if (!tmp) {
-				fprintf(stderr,
-					"%s failed at %d\n",
-					__func__, __LINE__);
-
-				return -1;
-			}
-
-			xfer->i2cni3c = 1;
-			xfer->addr = strtol(tmp, NULL, 0);
-
-			tmp = strtok(NULL, ":");
-
-			if (!tmp) {
-				fprintf(stderr,
-					"%s failed at %d\n",
-					__func__, __LINE__);
-
-				return -1;
-			}
-		} else {
-			tmp = arg;
-			++tmp;
-			printf("%d - tmp=%s\n", __LINE__, tmp);
-		}
-	} else {
-		tmp = arg;	
+	if (!tmp) {
+		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		return -1;
 	}
 
-	/**
-	 * Allocate a buffer for the read.
-	 */
+	if (strncmp("i2c", tmp, strlen("i2c")) == 0) {
+		xfer->i2cni3c = 1;
+	} else if (strncmp("i3c", tmp, strlen("i3c")) == 0) {
+		xfer->i2cni3c = 0;
+	} else {
+		fprintf(stderr, "<type> must be i2c or i3c\n");
+		return -1;
+	}
+
+	/* Address */
+
+	tmp = strtok(NULL, ":");
+
+	if (!tmp) {
+		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		return -1;
+	}
+
+	xfer->addr = strtol(tmp, NULL, 0);
+
+	tmp = strtok(NULL, ":");
+
+	if (!tmp) {
+		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		return -1;
+	}
 
 	len = strtol(tmp, NULL, 0);
 
-	tmp = (char *)calloc(len, sizeof(uint8_t));
+	if (len > USHRT_MAX) {
+		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		return -1;
+	}
+
+	xfer->len = len;
+
+	/* Allocate a buffer for the read. */
+
+	tmp = (char *)calloc(xfer->len, sizeof(uint8_t));
 
 	if (!tmp) {
 		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
@@ -128,7 +124,6 @@ static int r_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 		return -1;
 	}
 
-	xfer->len = len;
 	xfer->data = (uintptr_t)tmp;
 
 	return 0;
@@ -142,47 +137,40 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	char *tmp;
 
 	/**
-	 * [address]:<data>|<file>
+	 * <type>:<address>:<data>|<file>
 	 */
 
 	memset(xfer, 0, sizeof(*xfer));
 	xfer->rnw = 0;
 
-	/**
-	 * Address (optional) -- Implies i2cni3c if it is present.
-	 */
+	/* Type */
 
-	if (strchr(arg, ':') != NULL) {
-		if (arg[0] != ':') {
-			tmp = strtok(arg, ":");
+	tmp = strtok(arg, ":");
 
-			if (!tmp) {
-				fprintf(stderr,
-					"%s failed at %d\n",
-					__func__, __LINE__);
-
-				return -1;
-			}
-
-			xfer->i2cni3c = 1;
-			xfer->addr = strtol(tmp, NULL, 0);
-
-			tmp = strtok(NULL, ":");
-
-			if (!tmp) {
-				fprintf(stderr,
-					"%s failed at %d\n",
-					__func__, __LINE__);
-
-				return -1;
-			}
-		} else {
-			tmp = arg;
-			++tmp;
-		}
-	} else {
-		tmp = arg;	
+	if (!tmp) {
+		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		return -1;
 	}
+
+	if (strncmp("i2c", tmp, strlen("i2c")) == 0) {
+		xfer->i2cni3c = 1;
+	} else if (strncmp("i3c", tmp, strlen("i3c")) == 0) {
+		xfer->i2cni3c = 0;
+	} else {
+		fprintf(stderr, "<type> must be i2c or i3c\n");
+		return -1;
+	}
+
+	/* Address */
+
+	tmp = strtok(NULL, ":");
+
+	if (!tmp) {
+		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		return -1;
+	}
+
+	xfer->addr = strtol(tmp, NULL, 0);
 
 	/**
 	 * Allocate and fill a buffer with data.  The data can be
@@ -190,8 +178,7 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	 * values (0xnn,0xmm,etc.) OR a binary file.
 	 */
 
-	/* If 'tmp' is at a file, use it. */
-
+	tmp = strtok(NULL, ":");
 	input = fopen(tmp, "rb");
 
 	if (input) {
@@ -236,126 +223,6 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	return 0;
 }
 
-static int c_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
-{
-	char *data_ptrs[256];
-	int i, len;
-	char *tmp;
-
-	memset(xfer, 0, sizeof(*xfer));
-
-	xfer->combo = 1;
-
-	/**
-	 * Address (optional) -- Implies i2cni3c if it is present.
-	 */
-
-	tmp = strtok(arg, ":");
-
-	if (!tmp) {
-		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
-
-		return -1;
-	}
-
-	if (0 != strcmp(tmp, "")) {
-		xfer->i2cni3c = 1;
-		xfer->addr = strtol(tmp, NULL, 0);
-	}
-
-	/**
-	 * Offset (required).
-	 */
-
-	tmp = strtok(NULL, ":");
-
-	if (!tmp) {
-		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
-
-		return -1;
-	}
-
-	xfer->offset = strtol(tmp, NULL, 0);
-
-	if (xfer->offset > 0xffff) {
-		fprintf(stderr, "Offset must be <= 0xffff!\n");
-
-		return -1;
-	}
-
-	/**
-	 * Read or write (required).
-	 */
-
-	tmp = strtok(NULL, ":");
-
-	if (!tmp) {
-		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
-
-		return -1;
-	}
-
-	if (0 == strcmp(tmp, "r")) {
-		xfer->rnw = 1;
-	} else if (0 == strcmp(tmp, "w")) {
-		xfer->rnw = 0;
-	} else {
-		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
-
-		return -1;	/* Must be either read or write... */
-	}
-
-	/**
-	 * Either allocate a buffer (read) or allocate and fill a
-	 * buffer with data (write).
-	 */
-	tmp = strtok(NULL, ":");
-
-	if (!tmp) {
-		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
-
-		return -1;
-	}
-
-	if (xfer->rnw) {
-		len = strtol(tmp, NULL, 0);
-		tmp = (char *)calloc(len, sizeof(uint8_t));
-
-		if (!tmp) {
-			fprintf(stderr,
-				"%s failed at %d\n", __func__, __LINE__);
-
-			return -1;
-		}
-
-		xfer->data = (uintptr_t)tmp;
-	} else {
-		i = 0;
-		data_ptrs[i] = strtok(tmp, ",");
-
-		while (data_ptrs[i] && i < 255)
-			data_ptrs[++i] = strtok(NULL, ",");
-
-		tmp = (char *)calloc(i, sizeof(uint8_t));
-
-		if (!tmp) {
-			fprintf(stderr,
-				"%s failed at %d\n", __func__, __LINE__);
-
-			return -1;
-		}
-
-		for (len = 0; len < i; len++)
-			tmp[len] = (uint8_t)strtol(data_ptrs[len], NULL, 0);
-
-		xfer->data = (uintptr_t)tmp;
-	}
-
-	xfer->len = len;
-
-	return 0;
-}
-
 static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
 {
 	char *filename;
@@ -364,6 +231,7 @@ static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
 	int i;
 
 	filename = strtok(arg, ":");
+	filename = strtok(NULL, ":");
 	filename = strtok(NULL, ":");
 	filename = strtok(NULL, ":");
 
@@ -379,11 +247,7 @@ static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
 		}
 	}
 
-	tmp = (unsigned char *)calloc(xfer->len, sizeof(uint8_t));
-	if (!tmp)
-		return -1;
-
-	memcpy(tmp, (void *)(uintptr_t)xfer->data, xfer->len * sizeof(uint8_t));
+	tmp = (unsigned char *)xfer->data;
 
 	if (filename) {
 		fwrite(tmp, sizeof(char), xfer->len * sizeof(char), output);
@@ -393,8 +257,6 @@ static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
 		for (i = 0; i < xfer->len; i++)
 			fprintf(stdout, "    0x%02x\n", tmp[i]);
 	}
-
-	free(tmp);
 
 	return 0;
 }
@@ -469,18 +331,6 @@ int main(int argc, char *argv[])
 
 			if (w_args_to_xfer(&xfers[nxfers], optarg)) {
 				fprintf(stderr, "w_args_to_xfer() failed!\n");
-				ret = EXIT_FAILURE;
-				goto err_free;
-			}
-
-			nxfers++;
-			break;
-		case 'c':
-			xfers_args[nxfers] = malloc(strlen(optarg) + 1);
-			strcpy(xfers_args[nxfers], optarg);
-
-			if (c_args_to_xfer(&xfers[nxfers], optarg)) {
-				fprintf(stderr, "c_args_to_xfer() failed!\n");
 				ret = EXIT_FAILURE;
 				goto err_free;
 			}

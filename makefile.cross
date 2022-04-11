@@ -1,5 +1,9 @@
 CFLAGS = -Wall -I include
 
+ifdef DEBUG
+CFLAGS += -ggdb
+endif
+
 ifdef SYSROOT
 CFLAGS += --sysroot=$(SYSROOT)
 endif
