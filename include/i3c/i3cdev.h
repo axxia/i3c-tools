@@ -25,6 +25,7 @@
  * @combo: combo transfer.
  * @i2cni3c: I2C slave.
  * @rnw: encodes the transfer direction. true for a read, false for a write
+ * @tocwa: always end with TOC=1
  */
 
 struct i3c_ioc_priv_xfer {
@@ -35,6 +36,7 @@ struct i3c_ioc_priv_xfer {
 	__u8  combo;	     /* combo, instead of regular, transfer */
 	__u8  i2cni3c;
 	__u8  rnw;
+	__u8  tocwa;
 };
 
 #define I3C_PRIV_XFER_SIZE(N)	\
