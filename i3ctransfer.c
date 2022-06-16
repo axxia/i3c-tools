@@ -21,11 +21,12 @@
 
 #define VERSION "0.1"
 
-const char *sopts = "d:a:r:w:hv";
+const char *sopts = "d:c:r:w:thv";
 static const struct option lopts[] = {
 	{"device",		required_argument,	NULL,	'd' },
 	{"read",		required_argument,	NULL,	'r' },
 	{"write",		required_argument,	NULL,	'w' },
+	{"command",             required_argument,      NULL,   'c' },
 	{"tocwa",               no_argument,            NULL,   't' },
 	{"help",		no_argument,		NULL,	'h' },
 	{"version",		no_argument,		NULL,	'v' },
@@ -36,13 +37,20 @@ static void print_usage(const char *name)
 {
 	fprintf(stderr,
 		"  usage: %s options...\n"
- 		"   note: -r and -w are exclusive.  One, and only one, must be specified.\n",
+ 		"   note: -r, -w, and -c are exclusive.  One, and only one, must be specified.\n",
 		name);
 	fprintf(stderr,
 		"options:\n");
 	fprintf(stderr,
 		"    -d --device       <device>\n"
 		"        REQUIRED: device: Device entry to use.\n");
+	fprintf(stderr,
+		"    -c --ccc [read]   <id>:r:<address>:<length>[:<file>]\n"
+		"    -c --ccc [write]  <id>:w:<address>:<data>|<file>\n"
+		"           type: CCC code.\n"
+		"        address: Slave address.\n"
+		"           data: Write data.\n"
+		"           file: File containing data to write.\n");
 	fprintf(stderr,
 		"    -r --read         <type>:<address>:<length>[:<file>]\n"
 		"           type: i2c or i3c.\n"
@@ -67,13 +75,143 @@ static void print_usage(const char *name)
 		"        Output the version number and exit\n");
 }
 
-static int r_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
+static int c_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
+{
+	char *data_ptrs[256];
+	int len, i = 0;
+	FILE *input;
+	char *tmp;
+
+	/**
+	 * <command>:r|w:<address>:<data>|<file>
+	 */
+
+	memset(xfer, 0, sizeof(*xfer));
+	xfer->type = I3C_TOOLS_CCC;
+
+	/* Command */
+
+	tmp = strtok(arg, ":");
+
+	if (!tmp) {
+		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		return -1;
+	}
+
+	xfer->ccc = strtol(tmp, NULL, 0);
+
+	if (xfer->ccc < 0 || xfer->ccc > 0xff) {
+		fprintf(stderr, "<command> must be 0x00...0xff\n");
+		return -1;
+	}
+
+	/* Read or Write */
+
+	tmp = strtok(NULL, ":");
+
+	if (!tmp) {
+		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		return -1;
+	}
+
+	if (strncmp("r", tmp, strlen("r")) == 0) {
+		xfer->rnw = 1;
+	} else if (strncmp("w", tmp, strlen("w")) == 0) {
+		xfer->rnw = 0;
+	} else {
+		fprintf(stderr,
+			"The second field of a CCC command must be either r (read) or w (write).\n");
+		return -1;
+	}
+
+	/* Address */
+
+	tmp = strtok(NULL, ":");
+
+	if (!tmp) {
+		fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+		return -1;
+	}
+
+	xfer->addr = strtol(tmp, NULL, 0);
+
+	if (xfer->rnw) {
+		/* Allocate a buffer for the read. */
+
+		tmp = (char *)calloc(xfer->len, sizeof(uint8_t));
+
+		if (!tmp) {
+			fprintf(stderr,
+				"%s failed at %d\n", __func__, __LINE__);
+
+			return -1;
+	}
+
+	xfer->data = (uintptr_t)tmp;
+	} else {
+		/**
+		 * Allocate and fill a buffer with data.  The data can be
+		 * given on the command line as a comma seperated list of
+		 * values (0xnn,0xmm,etc.) OR a binary file.
+		 */
+
+		tmp = strtok(NULL, ":");
+		input = fopen(tmp, "rb");
+
+		if (input) {
+			fseek(input, 0L, SEEK_END);
+			xfer->len = ftell(input);
+			rewind(input);
+
+			tmp = (char *)calloc(xfer->len, sizeof(uint8_t));
+
+			if (!tmp) {
+				fprintf(stderr,
+					"%s failed at %d\n",
+					__func__, __LINE__);
+
+				return -1;
+			}
+
+			fread(tmp, sizeof(char *), xfer->len, input);
+			xfer->data = (uintptr_t)tmp;
+			fclose(input);
+		} else {
+			data_ptrs[i] = strtok(tmp, ",");
+
+			while (data_ptrs[i] && i < 255)
+				data_ptrs[++i] = strtok(NULL, ",");
+
+			tmp = (char *)calloc(i, sizeof(uint8_t));
+
+			if (!tmp) {
+				fprintf(stderr,
+					"%s failed at %d\n",
+					__func__, __LINE__);
+
+				return -1;
+			}
+
+			for (len = 0; len < i; len++)
+				tmp[len] = (uint8_t)strtol(data_ptrs[len],
+							   NULL, 0);
+
+			xfer->len = len;
+			xfer->data = (uintptr_t)tmp;
+		}
+	}
+
+	return 0;
+}
+
+static int r_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 {
 	char *tmp;
 	int len;
 
 	memset(xfer, 0, sizeof(*xfer));
 	xfer->rnw = 1;
+	xfer->type = I3C_TOOLS_PRIV_XFER;
 
 	/* Type */
 	tmp = strtok(arg, ":");
@@ -134,7 +272,7 @@ static int r_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	return 0;
 }
 
-static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
+static int w_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 {
 	char *data_ptrs[256];
 	int len, i = 0;
@@ -147,6 +285,7 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 
 	memset(xfer, 0, sizeof(*xfer));
 	xfer->rnw = 0;
+	xfer->type = I3C_TOOLS_PRIV_XFER;
 
 	/* Type */
 
@@ -228,7 +367,7 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	return 0;
 }
 
-static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
+static int handle_read(char *arg, struct i3c_tools_ioctl *xfer)
 {
 	char *filename;
 	FILE *output;
@@ -268,7 +407,7 @@ static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
 
 int main(int argc, char *argv[])
 {
-	struct i3c_ioc_priv_xfer *xfers;
+	struct i3c_tools_ioctl *xfers;
 	char **xfers_args;
 	int file, ret, opt, i;
 	int nxfers = 0;
@@ -309,7 +448,7 @@ int main(int argc, char *argv[])
 	if (file < 0)
 		exit(EXIT_FAILURE);
 
-	xfers = (struct i3c_ioc_priv_xfer *)calloc(nxfers, sizeof(*xfers));
+	xfers = (struct i3c_tools_ioctl *)calloc(nxfers, sizeof(*xfers));
 	if (!xfers)
 		exit(EXIT_FAILURE);
 
@@ -322,6 +461,19 @@ int main(int argc, char *argv[])
 
 	while ((opt = getopt_long(argc, argv, sopts, lopts, NULL)) != EOF) {
 		switch (opt) {
+		case 'c':
+			xfers_args[nxfers] = malloc(strlen(optarg) + 1);
+			strcpy(xfers_args[nxfers], optarg);
+
+			if (c_args_to_xfer(&xfers[nxfers], optarg)) {
+				fprintf(stderr, "c_args_to_xfer() failed!\n");
+				ret = EXIT_FAILURE;
+				goto err_free;
+			}
+
+			nxfers++;
+			break;
+			break;
 		case 'r':
 			xfers_args[nxfers] = malloc(strlen(optarg) + 1);
 			strcpy(xfers_args[nxfers], optarg);
@@ -353,7 +505,7 @@ int main(int argc, char *argv[])
 		(xfers[nxfers]).tocwa = tocwa;
 	}
 
-	if (ioctl(file, I3C_IOC_PRIV_XFER(nxfers), xfers) < 0) {
+	if (ioctl(file, I3C_TOOLS_TYPE(nxfers), xfers) < 0) {
 		fprintf(stderr,
 			"Error: transfer failed: %s\n", strerror(errno));
 		ret = EXIT_FAILURE;
