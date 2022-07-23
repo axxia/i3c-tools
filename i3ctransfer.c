@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 
 #include <i3c/i3cdev.h>
+#include <uapi/linux/i3c-dev.h>
 
 #define VERSION "0.1"
 

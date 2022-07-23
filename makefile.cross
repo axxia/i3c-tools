@@ -1,7 +1,7 @@
 CFLAGS = -Wall -I include
 
 ifdef DEBUG
-CFLAGS += -ggdb
+CFLAGS += -ggdb -g3
 endif
 
 ifdef SYSROOT
@@ -13,5 +13,5 @@ all: i3ctransfer
 clean:
 	@rm -f i3ctransfer
 
-i3ctransfer: i3ctransfer.c include/i3c/i3cdev.h
+i3ctransfer: i3ctransfer.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h
 	@${CROSS_COMPILE}gcc $(CFLAGS) -o i3ctransfer i3ctransfer.c
