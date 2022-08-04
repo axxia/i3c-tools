@@ -1,7 +1,14 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+/* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 
-#ifndef _I3C_TOOLS_IOCTL_H_
-#define _I3C_TOOLS_IOCTL_H_
+#ifndef _UAPI_LINUX_I3C_DEV_H_
+#define _UAPI_LINUX_I3C_DEV_H_
+
+/************************** DOCUMENTATION **************************/
+
+/**
+ * There are two ioctl commands available.  Private transfers and CCC
+ * commands.
+ */
 
 #define I3C_TOOLS_IOC_MAGIC 0x7
 
@@ -21,7 +28,6 @@ enum i3c_tools_ioctl_type {
  * @i2cni3c: I2C slave.
  * @rnw: Transfer direction. true for a read, false for a write.
  * @ccc: The CCC command ID.
- * @tocwa: Always end with TOC=1.
  */
 
 struct i3c_tools_ioctl {
@@ -34,7 +40,6 @@ struct i3c_tools_ioctl {
 	__u8  i2cni3c;
 	__u8  rnw;
 	__u8  ccc;
-	__u8  tocwa;
 };
 
-#endif	/* _I3C_TOOLS_IOCTL_H_ */
+#endif	/* _UAPI_LINUX_I3C_DEV_H_ */

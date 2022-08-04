@@ -22,13 +22,12 @@
 
 #define VERSION "0.1"
 
-const char *sopts = "d:c:r:w:thv";
+const char *sopts = "d:c:r:w:hv";
 static const struct option lopts[] = {
 	{"device",		required_argument,	NULL,	'd' },
 	{"read",		required_argument,	NULL,	'r' },
 	{"write",		required_argument,	NULL,	'w' },
 	{"command",             required_argument,      NULL,   'c' },
-	{"tocwa",               no_argument,            NULL,   't' },
 	{"help",		no_argument,		NULL,	'h' },
 	{"version",		no_argument,		NULL,	'v' },
 	{0, 0, 0, 0}
@@ -64,10 +63,6 @@ static void print_usage(const char *name)
 		"        address: Slave address.\n"
 		"           data: Write data.\n"
 		"           file: File containing data to write.\n");
-	fprintf(stderr,
-		"    -t --tocwa\n"
-		"        For all following transfers, end all writes with \"P\" in all cases,\n"
-		"        not \"start again\" and 0x7e\n");
 	fprintf(stderr,
 		"    -h --help\n"
 		"        Output usage message and exit.\n");
@@ -413,7 +408,6 @@ int main(int argc, char *argv[])
 	int file, ret, opt, i;
 	int nxfers = 0;
 	char *device;
-	int tocwa = 0;
 
 	while ((opt = getopt_long(argc, argv,  sopts, lopts, NULL)) != EOF) {
 		switch (opt) {
@@ -432,9 +426,6 @@ int main(int argc, char *argv[])
 		case 'w':
 		case 'c':
 			nxfers++;
-			break;
-		case 't':
-			tocwa = 1;
 			break;
 		default:
 			print_usage(argv[0]);
@@ -502,9 +493,11 @@ int main(int argc, char *argv[])
 		default:
 			break;
 		}
-
-		(xfers[nxfers]).tocwa = tocwa;
 	}
+
+	printf("nxfers=%d cmd=0x%lx size=0x%lx sizeof=0x%lx max=0x%x\n",
+	       nxfers, I3C_TOOLS_TYPE(nxfers), I3C_TOOLS_SIZE(nxfers),
+	       sizeof(struct i3c_tools_ioctl), (1 << _IOC_SIZEBITS));
 
 	if (ioctl(file, I3C_TOOLS_TYPE(nxfers), xfers) < 0) {
 		fprintf(stderr,
