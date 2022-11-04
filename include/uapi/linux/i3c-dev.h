@@ -14,19 +14,20 @@
 
 enum i3c_tools_ioctl_type {
 	I3C_TOOLS_PRIV_XFER,
+	I3C_TOOLS_COMBO_XFER,
 	I3C_TOOLS_CCC
 };
 
 /**
- * struct i3c_tools_ioctl - I2C/I3C Private Transfer OR CCC Command
- * @type: Indicate the type (private transfer or CCC command).
- * @data: Pointer to userspace buffer with transmit/receive data.
- * @len: Length of the buffer, in bytes.
- * @addr: The address of the slave.
+ * struct i3c_tools_ioctl -
+ *     I2C/I3C Private Transfer, Combo Transfer, or CCC Command
+ * @type: Indicate the type.
+ * @data: Pointer to userspace buffer.
+ * @len: Length of the userspace buffer, in bytes.
+ * @addr: The address of the endpoint.
  * @offset: For combo transfers.
- * @combo: combo transfer.
- * @i2cni3c: I2C slave.
- * @rnw: Transfer direction. true for a read, false for a write.
+ * @i2cni3c: Set if endpoint is I2C.
+ * @rnw: Transfer direction. set for a read, zero for a write.
  * @ccc: The CCC command ID.
  */
 
@@ -36,7 +37,6 @@ struct i3c_tools_ioctl {
 	__u16 len;
 	__u8  addr;
 	__u16 offset;
-	__u8  combo;
 	__u8  i2cni3c;
 	__u8  rnw;
 	__u8  ccc;

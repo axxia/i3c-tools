@@ -8,10 +8,16 @@ ifdef SYSROOT
 CFLAGS += --sysroot=$(SYSROOT)
 endif
 
-all: i3ctransfer
+all: i3ctransfer i3cget i3cset
 
 clean:
-	@rm -f i3ctransfer
+	@rm -f i3ctransfer i3cget i3cset
+
+i3cget: i3cget.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h
+	@${CROSS_COMPILE}gcc $(CFLAGS) -o i3cget i3cget.c
+
+i3cset: i3cset.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h
+	@${CROSS_COMPILE}gcc $(CFLAGS) -o i3cset i3cset.c
 
 i3ctransfer: i3ctransfer.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h
 	@${CROSS_COMPILE}gcc $(CFLAGS) -o i3ctransfer i3ctransfer.c
