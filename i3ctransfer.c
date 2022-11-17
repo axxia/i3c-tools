@@ -79,7 +79,8 @@ static int c_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 	char *tmp;
 
 	/**
-	 * <command>:r|w:<address>:<data>|<file>
+	 * <command>:r:<address>:<length>[:<file>]
+	 * <command>:w:<address>:<data>|<file>
 	 */
 
 	memset(xfer, 0, sizeof(*xfer));
@@ -121,7 +122,6 @@ static int c_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 	}
 
 	/* Address */
-
 	tmp = strtok(NULL, ":");
 
 	if (!tmp) {
@@ -132,8 +132,17 @@ static int c_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 	xfer->addr = strtol(tmp, NULL, 0);
 
 	if (xfer->rnw) {
-		/* Allocate a buffer for the read. */
+		/* Length */
+		tmp = strtok(NULL, ":");
 
+		if (!tmp) {
+			fprintf(stderr, "%s failed at %d\n", __func__, __LINE__);
+			return -1;
+		}
+
+		xfer->len = strtol(tmp, NULL, 0);
+
+		/* Allocate a buffer for the read. */
 		tmp = (char *)calloc(xfer->len, sizeof(uint8_t));
 
 		if (!tmp) {
@@ -141,9 +150,9 @@ static int c_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 				"%s failed at %d\n", __func__, __LINE__);
 
 			return -1;
-	}
+		}
 
-	xfer->data = (uintptr_t)tmp;
+		xfer->data = (uintptr_t)tmp;
 	} else {
 		/**
 		 * Allocate and fill a buffer with data.  The data can be
@@ -227,7 +236,6 @@ static int r_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 	}
 
 	/* Address */
-
 	tmp = strtok(NULL, ":");
 
 	if (!tmp) {
@@ -254,7 +262,6 @@ static int r_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 	xfer->len = len;
 
 	/* Allocate a buffer for the read. */
-
 	tmp = (char *)calloc(xfer->len, sizeof(uint8_t));
 
 	if (!tmp) {
@@ -284,7 +291,6 @@ static int w_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 	xfer->type = I3C_TOOLS_PRIV_XFER;
 
 	/* Type */
-
 	tmp = strtok(arg, ":");
 
 	if (!tmp) {
@@ -302,7 +308,6 @@ static int w_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
 	}
 
 	/* Address */
-
 	tmp = strtok(NULL, ":");
 
 	if (!tmp) {
@@ -374,6 +379,9 @@ static int handle_read(char *arg, struct i3c_tools_ioctl *xfer)
 	filename = strtok(NULL, ":");
 	filename = strtok(NULL, ":");
 	filename = strtok(NULL, ":");
+
+	if (xfer->ccc)
+		filename = strtok(NULL, ":");
 
 	if (filename) {
 		output = fopen(filename, "w");
@@ -509,6 +517,7 @@ int main(int argc, char *argv[])
 	for (i = 0; i < nxfers; i++) {
 		fprintf(stdout,
 			"Success on message %d: %s\n", i, xfers_args[i]);
+
 		if (xfers[i].rnw)
 			handle_read(xfers_args[i], &xfers[i]);
 	}
@@ -516,10 +525,12 @@ int main(int argc, char *argv[])
 	ret = EXIT_SUCCESS;
 
 err_free:
+
 	for (i = 0; i < nxfers; i++) {
 		free((void *)(uintptr_t)xfers[i].data);
 		free(xfers_args[i]);
 	}
+
 	free(xfers);
 	free(xfers_args);
 
