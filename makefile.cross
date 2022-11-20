@@ -13,6 +13,9 @@ all: i3cget i3cset i3ctransfer
 clean:
 	rm -f i3ctransfer i3cget i3cset i3ccmd
 
+i3ccmd: i3ccmd.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h include/i3c/i3clib.h
+	${CROSS_COMPILE}gcc $(CFLAGS) -o i3ccmd i3ccmd.c i3clib.c
+
 i3cget: i3cget.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h include/i3c/i3clib.h
 	${CROSS_COMPILE}gcc $(CFLAGS) -o i3cget i3cget.c i3clib.c
 
