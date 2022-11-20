@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include <i3c/i3cdev.h>
+#include <i3c/i3clib.h>
 #include <uapi/linux/i3c-dev.h>
 
 #define VERSION "0.1"
@@ -64,7 +65,7 @@ int main(int argc, char *argv[])
 {
 	unsigned long endpoint, length, offset;
 	struct i3c_tools_ioctl combo;
-	int file, i, opt, rc;
+	int file, opt, rc;
 	char *device;
 	int i2c = 0;
 	void *data;
@@ -171,13 +172,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	printf("received data: ");
-
-	for (i = 0; i < combo.len; ++i)
-		printf("0x%02x ", ((unsigned char *)data)[i]);
-
-	printf("\n");
-
+	display("received data", (unsigned char *)data, combo.len);
 	free(data);
 	close(file);
 

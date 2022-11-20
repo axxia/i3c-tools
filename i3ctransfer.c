@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 
 #include <i3c/i3cdev.h>
+#include <i3c/i3clib.h>
 #include <uapi/linux/i3c-dev.h>
 
 #define VERSION "0.1"
@@ -373,7 +374,6 @@ static int handle_read(char *arg, struct i3c_tools_ioctl *xfer)
 	char *filename;
 	FILE *output;
 	unsigned char *tmp;
-	int i;
 
 	filename = strtok(arg, ":");
 	filename = strtok(NULL, ":");
@@ -401,9 +401,7 @@ static int handle_read(char *arg, struct i3c_tools_ioctl *xfer)
 		fwrite(tmp, sizeof(char), xfer->len * sizeof(char), output);
 		fclose(output);
 	} else {
-		fprintf(stdout, "  received data:\n");
-		for (i = 0; i < xfer->len; i++)
-			fprintf(stdout, "    0x%02x\n", tmp[i]);
+		display("received data", tmp, xfer->len);
 	}
 
 	return 0;

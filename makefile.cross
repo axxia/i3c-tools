@@ -8,16 +8,16 @@ ifdef SYSROOT
 CFLAGS += --sysroot=$(SYSROOT)
 endif
 
-all: i3ctransfer i3cget i3cset
+all: i3cget i3cset i3ctransfer
 
 clean:
-	@rm -f i3ctransfer i3cget i3cset
+	rm -f i3ctransfer i3cget i3cset i3ccmd
 
-i3cget: i3cget.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h
-	@${CROSS_COMPILE}gcc $(CFLAGS) -o i3cget i3cget.c
+i3cget: i3cget.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h include/i3c/i3clib.h
+	${CROSS_COMPILE}gcc $(CFLAGS) -o i3cget i3cget.c i3clib.c
 
-i3cset: i3cset.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h
-	@${CROSS_COMPILE}gcc $(CFLAGS) -o i3cset i3cset.c
+i3cset: i3cset.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h include/i3c/i3clib.h
+	${CROSS_COMPILE}gcc $(CFLAGS) -o i3cset i3cset.c i3clib.c
 
-i3ctransfer: i3ctransfer.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h
-	@${CROSS_COMPILE}gcc $(CFLAGS) -o i3ctransfer i3ctransfer.c
+i3ctransfer: i3ctransfer.c include/i3c/i3cdev.h include/uapi/linux/i3c-dev.h include/i3c/i3clib.h
+	${CROSS_COMPILE}gcc $(CFLAGS) -o i3ctransfer i3ctransfer.c i3clib.c
