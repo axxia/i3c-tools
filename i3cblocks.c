@@ -40,10 +40,10 @@ static void print_usage(const char *name)
 	fprintf(stderr,
 		"options:\n");
 	fprintf(stderr,
-		"    -b --blocks <comma separated list of blocks>\n"
+		"    -b --blocks <plus sign separated list of blocks>\n"
 		"        A block starts with r: (read) or w: (write)\n"
 		"        For reads, r:<length>[:file]\n"
-		"        For writes, w:<file>|<comma separated values>\n\n");
+		"        For writes, w:<file>|<comma separated values>\n");
 	fprintf(stderr,
 		"    -d --device        <dev entry>\n"
 		"        REQUIRED: device: Device entry to use.\n");
