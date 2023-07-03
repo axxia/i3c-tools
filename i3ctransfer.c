@@ -23,14 +23,15 @@
 
 #define VERSION "0.1"
 
-const char *sopts = "d:c:r:w:hv";
+const char *sopts = "c:d:ghr:vw:";
 static const struct option lopts[] = {
-	{"device",		required_argument,	NULL,	'd' },
-	{"read",		required_argument,	NULL,	'r' },
-	{"write",		required_argument,	NULL,	'w' },
 	{"command",             required_argument,      NULL,   'c' },
+	{"device",		required_argument,	NULL,	'd' },
+	{"group",		no_argument,		NULL,	'g' },
 	{"help",		no_argument,		NULL,	'h' },
+	{"read",		required_argument,	NULL,	'r' },
 	{"version",		no_argument,		NULL,	'v' },
+	{"write",		required_argument,	NULL,	'w' },
 	{0, 0, 0, 0}
 };
 
@@ -43,9 +44,6 @@ static void print_usage(const char *name)
 	fprintf(stderr,
 		"options:\n");
 	fprintf(stderr,
-		"    -d --device       <device>\n"
-		"        REQUIRED: device: Device entry to use.\n");
-	fprintf(stderr,
 		"    -c --ccc [read]   <id>:r:<address>:<length>[:<file>]\n"
 		"    -c --ccc [write]  <id>:w:<address>:<data>|<file>\n"
 		"           type: CCC code.\n"
@@ -53,23 +51,31 @@ static void print_usage(const char *name)
 		"           data: Write data.\n"
 		"           file: File containing data to write.\n");
 	fprintf(stderr,
+		"    -d --device       <device>\n"
+		"        REQUIRED: device: Device entry to use.\n");
+	fprintf(stderr,
+		"    -g --group\n"
+		"        \"Group\" all transactions -- send stop on last.\n"
+		"        All transactions must be of the same type\n"
+		"        (i2c or i3c), and address.\n");
+	fprintf(stderr,
+		"    -h --help\n"
+		"        Output usage message and exit.\n");
+	fprintf(stderr,
 		"    -r --read         <type>:<address>:<length>[:<file>]\n"
 		"           type: i2c or i3c.\n"
 		"        address: Slave address.\n"
 		"         length: Number of bytes to read.\n"
 		"           file: File to write bytes to.\n");
 	fprintf(stderr,
+		"    -v --version\n"
+		"        Output the version number and exit\n");
+	fprintf(stderr,
 		"    -w --write        <type>:<address>:<data>|<file>\n"
 		"           type: i2c or i3c.\n"
 		"        address: Slave address.\n"
 		"           data: Write data.\n"
 		"           file: File containing data to write.\n");
-	fprintf(stderr,
-		"    -h --help\n"
-		"        Output usage message and exit.\n");
-	fprintf(stderr,
-		"    -v --version\n"
-		"        Output the version number and exit\n");
 }
 
 static int c_args_to_xfer(struct i3c_tools_ioctl *xfer, char *arg)
@@ -410,13 +416,17 @@ static int handle_read(char *arg, struct i3c_tools_ioctl *xfer)
 int main(int argc, char *argv[])
 {
 	struct i3c_tools_ioctl *xfers;
-	char **xfers_args;
 	int file, ret, opt, i;
+	char **xfers_args;
 	int nxfers = 0;
+	int group = 0;
 	char *device;
 
 	while ((opt = getopt_long(argc, argv,  sopts, lopts, NULL)) != EOF) {
 		switch (opt) {
+		case 'g':
+			group = 1;
+			break;
 		case 'h':
 			print_usage(argv[0]);
 			exit(EXIT_SUCCESS);
@@ -460,6 +470,13 @@ int main(int argc, char *argv[])
 	while ((opt = getopt_long(argc, argv, sopts, lopts, NULL)) != EOF) {
 		switch (opt) {
 		case 'c':
+			if (group) {
+				fprintf(stderr,
+					"Only r: and w: are allowed with -g\n");
+				ret = EXIT_FAILURE;
+				goto err_free;
+			}
+
 			xfers_args[nxfers] = malloc(strlen(optarg) + 1);
 			strcpy(xfers_args[nxfers], optarg);
 
@@ -471,7 +488,6 @@ int main(int argc, char *argv[])
 
 			nxfers++;
 			break;
-			break;
 		case 'r':
 			xfers_args[nxfers] = malloc(strlen(optarg) + 1);
 			strcpy(xfers_args[nxfers], optarg);
@@ -481,6 +497,9 @@ int main(int argc, char *argv[])
 				ret = EXIT_FAILURE;
 				goto err_free;
 			}
+
+			if (group)
+				xfers[nxfers].type = I3C_TOOLS_GROUPED_PRIV_XFER;
 
 			nxfers++;
 			break;
@@ -494,6 +513,9 @@ int main(int argc, char *argv[])
 				goto err_free;
 			}
 
+			if (group)
+				xfers[nxfers].type = I3C_TOOLS_GROUPED_PRIV_XFER;
+
 			nxfers++;
 			break;
 		default:
@@ -501,8 +523,8 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	printf("nxfers=%d cmd=0x%lx size=0x%lx sizeof=0x%lx max=0x%x\n",
-	       nxfers, I3C_TOOLS_TYPE(nxfers), I3C_TOOLS_SIZE(nxfers),
+	printf("nxfers=%d group=%d cmd=0x%lx size=0x%lx sizeof=0x%lx max=0x%x\n",
+	       nxfers, group, I3C_TOOLS_TYPE(nxfers), I3C_TOOLS_SIZE(nxfers),
 	       sizeof(struct i3c_tools_ioctl), (1 << _IOC_SIZEBITS));
 
 	if (ioctl(file, I3C_TOOLS_TYPE(nxfers), xfers) < 0) {
