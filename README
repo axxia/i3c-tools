@@ -1,0 +1,27 @@
+################################################################################
+################################################################################
+	README for the GRR Changes to i3c-tools
+################################################################################
+################################################################################
+
+This started with https://github.com/vitor-soares-snps/i3c-tools.git,
+but that project seems dead.  For GRR, clone
+https://github.com/axxia/i3c-tools.git and switch to the grr branch.
+Why the changes?  GRR has a very limited I3C controller.  The Linux
+I3C core expects more from a controller!
+
+Considering both points, 1) the upstream project seems to be dead and,
+2) the GRR I3C controller will not be upstreamed due to the
+limitations, this should just be used as an example.
+
+So, here are the changes.
+
+## 1 ##
+
+Instead of meson, just use make.  make can handle cross-compiling, and
+this is a simple build!
+
+## 2 ##
+
+As this branch is only intended to be used with GRR, see the README in
+the I3C driver source for details.
