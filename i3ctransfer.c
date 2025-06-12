@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <asm/ioctl.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 
@@ -103,6 +104,7 @@ static void print_rx_data(struct i3c_ioc_priv_xfer *xfer)
 int main(int argc, char *argv[])
 {
 	struct i3c_ioc_priv_xfer *xfers;
+	struct i3c_ioc_priv_xfers_args xfers_args;
 	int file, ret, opt, i;
 	int nxfers = 0;
 	char *device;
@@ -169,8 +171,11 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (ioctl(file, I3C_IOC_PRIV_XFER(nxfers), xfers) < 0) {
-		fprintf(stderr, "Error: transfer failed: %s\n", strerror(errno));
+	xfers_args.xfers = (__u64)xfers;
+	xfers_args.nxfers = nxfers;
+
+	if (ioctl(file, I3C_IOC_PRIV_XFERS, &xfers_args) < 0) {
+		fprintf(stderr,	"Error: transfer failed: %s\n", strerror(errno));
 		ret = EXIT_FAILURE;
 		goto err_free;
 	}
