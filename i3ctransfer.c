@@ -34,13 +34,20 @@ static const struct option lopts[] = {
 
 static void print_usage(const char *name)
 {
-	fprintf(stderr, "usage: %s options...\n", name);
-	fprintf(stderr, "  options:\n");
-	fprintf(stderr, "    -d --device       <dev>          device to use.\n");
-	fprintf(stderr, "    -r --read         <data length>  read data.\n");
-	fprintf(stderr, "    -w --write        <data block>   Write data block.\n");
-	fprintf(stderr, "    -h --help                        Output usage message and exit.\n");
-	fprintf(stderr, "    -v --version                     Output the version number and exit\n");
+	fprintf(stderr,
+		"usage: %s options...\n", name);
+	fprintf(stderr,
+		"  options:\n");
+	fprintf(stderr,
+		"    -d|--device  <device>          device to use.\n");
+	fprintf(stderr,
+		"    -r|--read    <length>[:file]   bytes to read (or write to a file if [:file]).\n");
+	fprintf(stderr,
+		"    -w|--write   <bytes|file>      comma separated values or a file.\n");
+	fprintf(stderr,
+		"    -h|--help                      output usage message and exit.\n");
+	fprintf(stderr,
+		"    -v|--version                   output the version number and exit.\n");
 }
 
 static int rx_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
@@ -49,8 +56,10 @@ static int rx_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	uint8_t *tmp;
 
 	tmp = (uint8_t *)calloc(len, sizeof(uint8_t));
-	if (!tmp)
+	if (!tmp) {
+		fprintf(stderr,	"calloc() failed: %s\n", strerror(errno));
 		return -1;
+	}
 
 	xfer->rnw = 1;
 	xfer->len = len;
@@ -64,41 +73,106 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	char *data_ptrs[256];
 	int len, i = 0;
 	uint8_t *tmp;
+	FILE *input;
 
 	data_ptrs[i] = strtok(arg, ",");
+	input = fopen(data_ptrs[i], "rb");
 
-	while (data_ptrs[i] && i < 255)
-		data_ptrs[++i] = strtok(NULL, ",");
+	if (input) {
+		fseek(input, 0L, SEEK_END);
+		xfer->len = ftell(input);
+		rewind(input);
 
-	tmp = (uint8_t *)calloc(i, sizeof(uint8_t));
-	if (!tmp)
-		return -1;
+		tmp = calloc(xfer->len, sizeof(uint8_t));
+		if (!tmp) {
+			fprintf(stderr,
+				"calloc() failed: %s\n", strerror(errno));
+			return -1;
+		}
 
-	for (len = 0; len < i; len++)
-		tmp[len] = (uint8_t)strtol(data_ptrs[len], NULL, 0);
+		fread(tmp, sizeof(char *), xfer->len, input);
+		xfer->data = (uintptr_t)tmp;
+		fclose(input);
+	} else {
+		while (data_ptrs[i] && i < 255)
+			data_ptrs[++i] = strtok(NULL, ",");
 
-	xfer->len = len;
-	xfer->data = (uintptr_t)tmp;
+		tmp = (uint8_t *)calloc(i, sizeof(uint8_t));
+		if (!tmp) {
+			fprintf(stderr,
+				"calloc() failed: %s\n", strerror(errno));
+			return -1;
+		}
+
+		for (len = 0; len < i; len++)
+			tmp[len] = (uint8_t)strtol(data_ptrs[len], NULL, 0);
+
+		xfer->len = len;
+		xfer->data = (uintptr_t)tmp;
+	}
 
 	return 0;
 }
 
-static void print_rx_data(struct i3c_ioc_priv_xfer *xfer)
+static void display_data(const char *header, void *data, int length)
 {
-	uint8_t *tmp;
-	int i;
+	unsigned char *data8 = data;
+	unsigned long offset = 0;
 
-	tmp = (uint8_t *)calloc(xfer->len, sizeof(uint8_t));
-	if (!tmp)
-		return;
+        if (header)
+                printf("---- %s ----\n", header);
 
-	memcpy(tmp, (void *)(uintptr_t)xfer->data, xfer->len * sizeof(uint8_t));
+        while (0 < length) {
+		char buffer[256];
+                int this_line;
+		char *string;
+		int i;
 
-	fprintf(stdout, "  received data:\n");
-	for (i = 0; i < xfer->len; i++)
-		fprintf(stdout, "    0x%02x\n", tmp[i]);
+                string = buffer;
+                string += sprintf(string, "%06lx ", offset);
+                this_line = (16 > length) ? length : 16;
 
-	free(tmp);
+                for (i = 0; i < this_line; ++i) {
+                        string += sprintf(string, "%02x ", *data8++);
+                        --length;
+                        ++offset;
+                }
+
+                printf("%s\n", buffer);
+        }
+}
+
+static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
+{
+	char *filename;
+	FILE *output;
+	unsigned char *tmp;
+
+	filename = strtok(arg, ":");
+	filename = strtok(NULL, ":");
+
+	if (filename) {
+		output = fopen(filename, "wb");
+
+		if (!output) {
+			fprintf(stderr,
+				"fopen(%s) failed: %s\n",
+				filename, strerror(errno));
+
+			return -1;
+		}
+	}
+
+	tmp = (unsigned char *)xfer->data;
+
+	if (filename) {
+		fwrite(tmp, sizeof(char), xfer->len * sizeof(char), output);
+		fclose(output);
+	} else {
+		display_data("received data", tmp, xfer->len);
+	}
+
+	return 0;
 }
 
 int main(int argc, char *argv[])
@@ -106,6 +180,7 @@ int main(int argc, char *argv[])
 	struct i3c_ioc_priv_xfer *xfers;
 	struct i3c_ioc_priv_xfers_args xfers_args;
 	int file, ret, opt, i;
+	char **xfer_args = 0;
 	int nxfers = 0;
 	char *device;
 
@@ -143,6 +218,10 @@ int main(int argc, char *argv[])
 	if (!xfers)
 		exit(EXIT_FAILURE);
 
+	xfer_args = (char **)calloc(nxfers, sizeof(char *));
+	if (!xfer_args)
+		exit(EXIT_FAILURE);
+
 	optind = 1;
 	nxfers = 0;
 
@@ -153,6 +232,9 @@ int main(int argc, char *argv[])
 		case 'd':
 			break;
 		case 'r':
+			xfer_args[nxfers] = malloc(strlen(optarg) + 1);
+			strcpy(xfer_args[nxfers], optarg);
+
 			if (rx_args_to_xfer(&xfers[nxfers], optarg)) {
 				ret = EXIT_FAILURE;
 				goto err_free;
@@ -161,6 +243,9 @@ int main(int argc, char *argv[])
 			nxfers++;
 			break;
 		case 'w':
+			xfer_args[nxfers] = malloc(strlen(optarg) + 1);
+			strcpy(xfer_args[nxfers], optarg);
+
 			if (w_args_to_xfer(&xfers[nxfers], optarg)) {
 				ret = EXIT_FAILURE;
 				goto err_free;
@@ -183,15 +268,19 @@ int main(int argc, char *argv[])
 	for (i = 0; i < nxfers; i++) {
 		fprintf(stdout, "Success on message %d\n", i);
 		if (xfers[i].rnw)
-			print_rx_data(&xfers[i]);
+			handle_read(xfer_args[i], &xfers[i]);
 	}
 
 	ret = EXIT_SUCCESS;
 
 err_free:
-	for (i = 0; i < nxfers; i++)
+	for (i = 0; i < nxfers; i++) {
 		free((void *)(uintptr_t)xfers[i].data);
+		free(xfer_args[i]);
+	}
+
 	free(xfers);
+	free(xfer_args);
 
 	return ret;
 }
