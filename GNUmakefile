@@ -13,5 +13,5 @@ all: i3ctransfer
 clean:
 	rm -f i3ctransfer
 
-i3ctransfer: i3ctransfer.c include/i3c/i3cdev.h
+i3ctransfer: i3ctransfer.c
 	${CROSS_COMPILE}gcc $(CFLAGS) -o i3ctransfer i3ctransfer.c
