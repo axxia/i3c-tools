@@ -8,10 +8,13 @@ ifdef SYSROOT
 CFLAGS += --sysroot=$(SYSROOT)
 endif
 
-all: i3ctransfer
+all: i3ctransfer ibitest
 
 clean:
-	rm -f i3ctransfer
+	rm -f i3ctransfer ibitest
 
 i3ctransfer: i3ctransfer.c
 	${CROSS_COMPILE}gcc $(CFLAGS) -o i3ctransfer i3ctransfer.c
+
+ibitest: ibitest.c
+	${CROSS_COMPILE}gcc $(CFLAGS) -o ibitest ibitest.c
