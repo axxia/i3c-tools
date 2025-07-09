@@ -19,6 +19,8 @@
 
 #include <linux/i3c/i3cdev.h>
 
+#include "i3clib.h"
+
 #define VERSION "0.1"
 
 const char *sopts = "d:r:w:vh";
@@ -114,34 +116,6 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 	return 0;
 }
 
-static void display_data(const char *header, void *data, int length)
-{
-	unsigned char *data8 = data;
-	unsigned long offset = 0;
-
-        if (header)
-                printf("---- %s ----\n", header);
-
-        while (0 < length) {
-		char buffer[256];
-                int this_line;
-		char *string;
-		int i;
-
-                string = buffer;
-                string += sprintf(string, "%06lx ", offset);
-                this_line = (16 > length) ? length : 16;
-
-                for (i = 0; i < this_line; ++i) {
-                        string += sprintf(string, "%02x ", *data8++);
-                        --length;
-                        ++offset;
-                }
-
-                printf("%s\n", buffer);
-        }
-}
-
 static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
 {
 	char *filename;
@@ -169,7 +143,7 @@ static int handle_read(char *arg, struct i3c_ioc_priv_xfer *xfer)
 		fwrite(tmp, sizeof(char), xfer->len * sizeof(char), output);
 		fclose(output);
 	} else {
-		display_data("received data", tmp, xfer->len);
+		display("received data", tmp, xfer->len);
 	}
 
 	return 0;

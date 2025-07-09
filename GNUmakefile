@@ -13,8 +13,8 @@ all: i3ctransfer ibitest
 clean:
 	rm -f i3ctransfer ibitest
 
-i3ctransfer: i3ctransfer.c
-	${CROSS_COMPILE}gcc $(CFLAGS) -o i3ctransfer i3ctransfer.c
+i3ctransfer: i3ctransfer.c i3clib.c
+	${CROSS_COMPILE}gcc $(CFLAGS) -o i3ctransfer i3ctransfer.c i3clib.c
 
-ibitest: ibitest.c
-	${CROSS_COMPILE}gcc $(CFLAGS) -o ibitest ibitest.c
+ibitest: ibitest.c i3clib.c
+	${CROSS_COMPILE}gcc $(CFLAGS) -o ibitest ibitest.c i3clib.c
