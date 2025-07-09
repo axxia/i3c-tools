@@ -20,6 +20,8 @@
 
 #include <linux/i3c/i3cdev.h>
 
+#include "i3clib.h"
+
 #define VERSION "0.1"
 
 const char *sopts = "d:vh";
@@ -95,7 +97,8 @@ int main(int argc, char *argv[])
 
 	ret = ioctl(file, I3C_IOC_IBI_REG, &reg_args);
 	if (ret) {
-		fprintf(stderr, "Error: IBI registration failed: %s\n", strerror(errno));
+		fprintf(stderr, "Error: IBI registration failed: %s\n",
+			strerror(errno));
 		return ret;
 	}
 
@@ -114,9 +117,14 @@ int main(int argc, char *argv[])
 	       "    payload_len=%d\n",
 	       wait_args.wait_time_us, wait_args.payload_len);
 
+	if (wait_args.payload_len)
+		display("received data",
+			(void *)wait_args.payload, wait_args.payload_len);
+
 	ret = ioctl(file, I3C_IOC_IBI_UNREG, NULL);
 	if (ret) {
-		fprintf(stderr, "Error: IBI unregistration failed: %s\n", strerror(errno));
+		fprintf(stderr, "Error: IBI unregistration failed: %s\n",
+			strerror(errno));
 		return ret;
 	}
 
