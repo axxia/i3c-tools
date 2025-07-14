@@ -24,10 +24,11 @@
 
 #define VERSION "0.1"
 
-const char *sopts = "d:vh";
+const char *sopts = "d:ht:v";
 static const struct option lopts[] = {
 	{"device",		required_argument,	NULL,	'd' },
 	{"help",		no_argument,		NULL,	'h' },
+	{"timeout",		required_argument,	NULL,	't' },
 	{"version",		no_argument,		NULL,	'v' },
 	{0, 0, 0, 0}
 };
@@ -39,11 +40,13 @@ static void print_usage(const char *name)
 	fprintf(stderr,
 		"  options:\n");
 	fprintf(stderr,
-		"    -d|--device  <device>          device to use.\n");
+		"    -d|--device <device>    Device to use.  [no default]\n");
 	fprintf(stderr,
-		"    -h|--help                      output usage message and exit.\n");
+		"    -h|--help               Output usage message and exit.\n");
 	fprintf(stderr,
-		"    -v|--version                   output the version number and exit.\n");
+		"    -t|--timeout <ms>       Number of ms to wait.  -1 means wait forever.  [default is -1]\n");
+	fprintf(stderr,
+		"    -v|--version            Output the version number and exit.\n");
 }
 
 int main(int argc, char *argv[])
@@ -53,23 +56,28 @@ int main(int argc, char *argv[])
 	struct i3c_ioc_ibi_wait_args wait_args;
 	unsigned char wait_buf[256];
 	char *device;
+	int timeout = -1;
 
 	while ((opt = getopt_long(argc, argv,  sopts, lopts, NULL)) != EOF) {
 		switch (opt) {
+		case 'd':
+			device = optarg;
+			break;
 		case 'h':
 			print_usage(argv[0]);
 			exit(EXIT_SUCCESS);
 			/* fall through */
+		case 't':
+			timeout = strtol(optarg, (char **)NULL, 0);
+			break;
 		case 'v':
 			fprintf(stderr, "%s - %s\n", argv[0], VERSION);
 			exit(EXIT_SUCCESS);
-		case 'd':
 			/* fall through */
-			device = optarg;
-			break;
 		default:
 			print_usage(argv[0]);
 			exit(EXIT_FAILURE);
+			/* fall through */
 		}
 	}
 
@@ -79,17 +87,6 @@ int main(int argc, char *argv[])
 	file = open(device, O_RDWR);
 	if (file < 0)
 		exit(EXIT_FAILURE);
-
-	optind = 1;
-
-	while ((opt = getopt_long(argc, argv, sopts, lopts, NULL)) != EOF) {
-		switch (opt) {
-		case 'h':
-		case 'v':
-		case 'd':
-			break;
-		}
-	}
 
 	reg_args.num_slots = 32;
 	reg_args.ring_size = 256;
@@ -102,7 +99,7 @@ int main(int argc, char *argv[])
 		return ret;
 	}
 
-	wait_args.wait_time_us = 5;
+	wait_args.wait_time_us = timeout * 1000;
 	wait_args.payload_len = 16;
 	wait_args.payload = (__u64)wait_buf;
 
