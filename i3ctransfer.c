@@ -87,6 +87,7 @@ static int w_args_to_xfer(struct i3c_ioc_priv_xfer *xfer, char *arg)
 		if (!tmp) {
 			fprintf(stderr,
 				"calloc() failed: %s\n", strerror(errno));
+			fclose(input);
 			return -1;
 		}
 
